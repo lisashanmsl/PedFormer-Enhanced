@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# 虛擬環境
+venv/
+env/
+.venv/
+
+# PyTorch 權重 (大檔案，不上傳)
+weights/*.pth
+weights/*.pt
+weights/*.ckpt
+!weights/.gitkeep
+
+# 預計算快取 (大檔案)
+data/flow_cache/
+data/sam_cache/
+data/data_cache/
+
+# 資料集 (影像、影片、標註均不上傳，體積太大)
+data/PIE/
+data/JAAD/
+
+# 日誌
+logs/
+*.log
+runs/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# 其他
+*.zip
+*.tar.gz
+*.csv
+data/PIE/data_cache/

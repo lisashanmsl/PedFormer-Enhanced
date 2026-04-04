@@ -1,0 +1,73 @@
+# PedFormer-Enhanced 全局設定檔
+# 結合 PedFormer 跨模態編碼 + PTINet 光流/LSTM 解碼
+
+paths:
+  pie_dir: "data/PIE"
+  jaad_dir: "data/JAAD"
+  weights_dir: "weights"
+  logs_dir: "logs"
+  flow_cache_dir: "data/flow_cache"      # 預計算光流快取
+  sam_cache_dir: "data/sam_cache"         # 預計算 SAM 分割快取
+
+# 模型超參數
+model:
+  d_model: 128                # Transformer 隱藏層維度
+  nhead: 8                    # Multi-head attention 數量
+  num_encoder_layers: 4       # Transformer Encoder 層數
+  dim_feedforward: 512        # FFN 中間層維度
+  dropout: 0.1
+
+  # 各模態輸入維度
+  traj_input_dim: 4           # 行人 bbox (x1, y1, x2, y2)
+  ego_input_dim: 2            # 自車運動 (速度, 轉向角)
+  flow_feature_dim: 256       # RAFT 光流經 ResNet-50 編碼後維度
+  sam_feature_dim: 256        # SAM 語義分割特徵維度
+
+  # LSTM 解碼器
+  lstm_hidden_dim: 256        # LSTM 隱藏層維度
+  lstm_num_layers: 2          # LSTM 層數
+
+# 訓練超參數
+train:
+  batch_size: 16
+  learning_rate: 0.0001       # AdamW 學習率
+  weight_decay: 0.0001
+  num_epochs: 100
+  scheduler: "cosine"         # 學習率排程: cosine / step
+  warmup_epochs: 5
+  grad_clip: 1.0              # 梯度裁剪
+
+  # 多任務損失權重
+  w_traj: 1.0                 # 軌跡預測損失權重
+  w_intent: 0.5               # 意圖預測損失權重
+
+  # 早停 (Early Stopping)
+  patience: 15
+  save_best: true
+
+# 資料超參數
+data:
+  obs_len: 16                 # 觀察序列長度 (過去幀數)
+  pred_len: 45                # 預測序列長度 (未來幀數)
+  image_size: [224, 224]      # 輸入影像尺寸 (用於光流/SAM)
+  fps: 30
+  dataset: "combined"         # PIE / JAAD / combined (PIE+JAAD)
+
+# 光流 (RAFT) 設定
+raft:
+  model_path: "weights/raft-things.pth"   # RAFT 預訓練權重
+  iters: 20                               # RAFT 迭代次數
+  encoder_backbone: "resnet50"            # 光流編碼器骨幹
+
+# SAM 設定
+sam:
+  model_type: "vit_h"                     # vit_h / vit_l / vit_b
+  checkpoint: "weights/sam_vit_h_4b8939.pth"
+  num_patches: 16                         # Patch 數量
+  points_per_side: 32                     # 自動分割點密度
+
+# 硬體/推論設定
+inference:
+  target_fps: 10
+  safety_zone_radius: 50     # 安全區域半徑 (pixels)
+  confidence_threshold: 0.5  # 意圖預測門檻值
