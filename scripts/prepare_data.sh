@@ -45,7 +45,8 @@ else
                 continue  # 已提取
             fi
             mkdir -p "${out_dir}"
-            ffmpeg -y -i "$video" -start_number 0 -f image2 -qscale 1 "${out_dir}/%05d.png" -loglevel warning
+            echo "    提取: ${set_dir}/${fname}"
+            ffmpeg -y -i "$video" -start_number 0 -f image2 -q:v 2 "${out_dir}/%05d.png" -loglevel error
         done
         echo "  [PIE] ${set_dir} 完成"
     done
@@ -70,7 +71,8 @@ else
                 continue
             fi
             mkdir -p "${out_dir}"
-            ffmpeg -y -i "$video" -start_number 0 -f image2 -qscale 1 "${out_dir}/%05d.png" -loglevel warning
+            echo "    提取: ${fname}"
+            ffmpeg -y -i "$video" -start_number 0 -f image2 -q:v 2 "${out_dir}/%05d.png" -loglevel error
         done
         echo "  [JAAD] 完成"
     fi
