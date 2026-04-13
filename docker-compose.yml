@@ -1,0 +1,28 @@
+services:
+  pedformer:
+    build: .
+    image: pedformer:latest
+    container_name: pedformer-train
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    volumes:
+      # 掛載遠端電腦上的資料集 (修改左邊路徑為遠端實際路徑)
+      - /home/nutn/Downloads/PIE:/workspace/PedFormer/data/PIE:ro
+      - /home/nutn/Downloads/JAAD:/workspace/PedFormer/data/JAAD:ro
+      # 預訓練權重 (RAFT + SAM)
+      - ./weights:/workspace/PedFormer/weights
+      # 訓練產出 (logs, checkpoints) 持久化到 host
+      - ./logs:/workspace/PedFormer/logs
+      # 預計算快取
+      - ./flow_cache:/workspace/PedFormer/data/flow_cache
+      - ./sam_cache:/workspace/PedFormer/data/sam_cache
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # 預設執行訓練
+    command: python train.py
