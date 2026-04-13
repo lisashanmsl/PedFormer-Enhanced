@@ -514,7 +514,8 @@ class PIE(object):
             return database
 
         # Path to the folder annotations
-        set_ids = [f for f in sorted(listdir(self._annotation_path))]
+        set_ids = [f for f in sorted(listdir(self._annotation_path))
+                   if isdir(join(self._annotation_path, f))]
 
         # Read the content of set folders
         database = {}

@@ -191,9 +191,9 @@ class JAADPedestrianDataset(Dataset):
                 axis=-1,
             )
 
-            # JAAD intent: list of crossing labels per frame
+            # JAAD intent: list of lists per frame e.g. [[1],[0],[1],...]
             intent_label = (
-                1.0 if (len(intents) > i and sum(intents[i]) > 0) else 0.0
+                1.0 if (len(intents) > i and sum(x[0] for x in intents[i]) > 0) else 0.0
             )
 
             ego_data = np.zeros((self.obs_len, 2), dtype=np.float32)
