@@ -7,3 +7,4 @@ tqdm>=4.65.0
 matplotlib>=3.7.0
 segment-anything
 scipy>=1.10.0
+scikit-learn>=1.3.0
