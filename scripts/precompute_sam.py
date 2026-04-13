@@ -2,6 +2,7 @@
 
 使用方式:
     python scripts/precompute_sam.py --data_dir data/PIE --output_dir data/sam_cache
+    python scripts/precompute_sam.py --data_dir data/JAAD --output_dir data/sam_cache --dataset jaad
 """
 
 import os
@@ -23,10 +24,15 @@ from models.saim.segmentation.patch_extractor import PatchExtractor
 def precompute_sam(
     data_dir: str,
     output_dir: str,
+    dataset: str = "pie",
     sam_feature_dim: int = 256,
     num_patches: int = 16,
     sam_checkpoint: str = "weights/sam_vit_h_4b8939.pth",
 ):
+    if not HAS_CV2:
+        print("錯誤: 需要 opencv-python。請執行 pip install opencv-python")
+        return
+
     os.makedirs(output_dir, exist_ok=True)
 
     device_str = "cuda" if torch.cuda.is_available() else "cpu"
@@ -39,7 +45,6 @@ def precompute_sam(
         checkpoint=sam_checkpoint,
         device=device_str,
     )
-
     patch_extractor = PatchExtractor(
         sam_feature_dim=sam_feature_dim, num_patches=num_patches
     ).to(device)
@@ -50,74 +55,100 @@ def precompute_sam(
         print(f"影像目錄不存在: {image_dir}")
         return
 
-    sets = sorted(
-        [d for d in os.listdir(image_dir) if os.path.isdir(os.path.join(image_dir, d))]
-    )
-
     total_computed = 0
 
-    for set_name in sets:
-        set_dir = os.path.join(image_dir, set_name)
+    if dataset.lower() == "jaad":
+        # JAAD: images/video_0001/00000.png
         videos = sorted(
-            [d for d in os.listdir(set_dir) if os.path.isdir(os.path.join(set_dir, d))]
+            [d for d in os.listdir(image_dir) if os.path.isdir(os.path.join(image_dir, d))]
         )
-
-        for video_name in tqdm(videos, desc=f"Processing {set_name}"):
-            video_dir = os.path.join(set_dir, video_name)
+        for video_name in tqdm(videos, desc="Processing JAAD"):
+            video_dir = os.path.join(image_dir, video_name)
             frames = sorted(
                 [f for f in os.listdir(video_dir) if f.endswith((".png", ".jpg"))]
             )
-
             for frame_name in frames:
-                output_path = os.path.join(
-                    output_dir, f"{set_name}_{video_name}_{frame_name}.npy"
-                )
+                frame_key = f"{video_name}_{os.path.splitext(frame_name)[0]}"
+                output_path = os.path.join(output_dir, f"{frame_key}.npy")
                 if os.path.exists(output_path):
                     continue
 
-                img_path = os.path.join(video_dir, frame_name)
-                img_bgr = cv2.imread(img_path)
-                if img_bgr is None:
-                    continue
-
-                img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-
-                # SAM 分割
-                mask_tensor = sam(img_rgb, max_objects=num_patches)
-                mask_tensor = mask_tensor.unsqueeze(0).to(device)
-
-                # 準備影像 tensor
-                img_resized = cv2.resize(img_bgr, (224, 224))
-                img_t = (
-                    torch.from_numpy(img_resized[:, :, ::-1].copy())
-                    .permute(2, 0, 1)
-                    .float()
-                    .unsqueeze(0)
-                    .to(device)
-                    / 255.0
+                feat = _compute_sam_feat(
+                    os.path.join(video_dir, frame_name),
+                    sam, patch_extractor, num_patches, device,
                 )
-
-                # 調整 mask 大小
-                mask_resized = torch.nn.functional.interpolate(
-                    mask_tensor, size=(224, 224), mode="nearest"
+                if feat is not None:
+                    np.save(output_path, feat)
+                    total_computed += 1
+    else:
+        # PIE: images/set01/video_0001/00000.png
+        sets = sorted(
+            [d for d in os.listdir(image_dir) if os.path.isdir(os.path.join(image_dir, d))]
+        )
+        for set_name in sets:
+            set_dir = os.path.join(image_dir, set_name)
+            videos = sorted(
+                [d for d in os.listdir(set_dir) if os.path.isdir(os.path.join(set_dir, d))]
+            )
+            for video_name in tqdm(videos, desc=f"Processing {set_name}"):
+                video_dir = os.path.join(set_dir, video_name)
+                frames = sorted(
+                    [f for f in os.listdir(video_dir) if f.endswith((".png", ".jpg"))]
                 )
+                for frame_name in frames:
+                    frame_key = f"{set_name}_{video_name}_{os.path.splitext(frame_name)[0]}"
+                    output_path = os.path.join(output_dir, f"{frame_key}.npy")
+                    if os.path.exists(output_path):
+                        continue
 
-                with torch.no_grad():
-                    scene_feat = patch_extractor(img_t, mask_resized)
-
-                np.save(output_path, scene_feat.cpu().numpy()[0])
-                total_computed += 1
+                    feat = _compute_sam_feat(
+                        os.path.join(video_dir, frame_name),
+                        sam, patch_extractor, num_patches, device,
+                    )
+                    if feat is not None:
+                        np.save(output_path, feat)
+                        total_computed += 1
 
     print(f"\nSAM 特徵計算完成！共 {total_computed} 幀")
     print(f"儲存位置: {output_dir}")
+
+
+def _compute_sam_feat(img_path, sam, patch_extractor, num_patches, device):
+    """計算單張影像的 SAM 場景特徵。"""
+    img_bgr = cv2.imread(img_path)
+    if img_bgr is None:
+        return None
+
+    img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+
+    # SAM 分割
+    mask_tensor = sam(img_rgb, max_objects=num_patches)
+    mask_tensor = mask_tensor.unsqueeze(0).to(device)
+
+    # 影像 tensor
+    img_resized = cv2.resize(img_bgr, (224, 224))
+    img_t = (
+        torch.from_numpy(img_resized[:, :, ::-1].copy())
+        .permute(2, 0, 1).float().unsqueeze(0).to(device) / 255.0
+    )
+
+    mask_resized = torch.nn.functional.interpolate(
+        mask_tensor, size=(224, 224), mode="nearest"
+    )
+
+    with torch.no_grad():
+        scene_feat = patch_extractor(img_t, mask_resized)
+
+    return scene_feat.cpu().numpy()[0]
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", default="data/PIE")
     parser.add_argument("--output_dir", default="data/sam_cache")
+    parser.add_argument("--dataset", default="pie", choices=["pie", "jaad"])
     parser.add_argument("--sam_dim", type=int, default=256)
     parser.add_argument("--sam_checkpoint", default="weights/sam_vit_h_4b8939.pth")
     args = parser.parse_args()
 
-    precompute_sam(args.data_dir, args.output_dir, args.sam_dim)
+    precompute_sam(args.data_dir, args.output_dir, args.dataset, args.sam_dim)

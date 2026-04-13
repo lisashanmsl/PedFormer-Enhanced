@@ -55,7 +55,11 @@ class PIEPedestrianDataset(Dataset):
 
     def _prepare_data(self, split: str):
         bboxes = self.raw_data.get("bbox", [])
-        intents = self.raw_data.get("intent", [])
+        # PIE 返回 'intention_prob'，不是 'intent'
+        intents = self.raw_data.get("intention_prob", self.raw_data.get("intent", []))
+        images = self.raw_data.get("image", [])
+        obd_speeds = self.raw_data.get("obd_speed", [])
+        head_angles = self.raw_data.get("heading_angle", [])
 
         if len(bboxes) == 0:
             print(f"[PIE] 警告：在 {split} 集中找不到任何軌跡資料。")
@@ -78,35 +82,85 @@ class PIEPedestrianDataset(Dataset):
                 axis=-1,
             )
 
-            intent_label = (
-                1.0 if (len(intents) > i and sum(intents[i]) > 0) else 0.0
-            )
+            # intent: PIE 是 [[prob]] * N, JAAD 是 [[0/1]] * N
+            if len(intents) > i and len(intents[i]) > 0:
+                intent_vals = [x[0] if isinstance(x, list) else x for x in intents[i]]
+                intent_label = 1.0 if sum(intent_vals) > 0 else 0.0
+            else:
+                intent_label = 0.0
 
-            ego_data = np.zeros((self.obs_len, 2), dtype=np.float32)
+            # ego motion: OBD speed + heading angle
+            if len(obd_speeds) > i and len(head_angles) > i:
+                spd = [x[0] if isinstance(x, list) else x for x in obd_speeds[i][:self.obs_len]]
+                ang = [x[0] if isinstance(x, list) else x for x in head_angles[i][:self.obs_len]]
+                ego_data = np.array(list(zip(spd, ang)), dtype=np.float32)
+                # 補齊長度
+                if len(ego_data) < self.obs_len:
+                    pad = np.zeros((self.obs_len - len(ego_data), 2), dtype=np.float32)
+                    ego_data = np.concatenate([ego_data, pad])
+            else:
+                ego_data = np.zeros((self.obs_len, 2), dtype=np.float32)
+
+            # 儲存影像路徑（用於查找光流/SAM 快取）
+            img_paths = images[i][:self.obs_len] if len(images) > i else []
 
             self.samples.append({
                 "past_traj": past_traj,
                 "future_traj": future_traj,
                 "intent": np.array([intent_label], dtype=np.float32),
                 "ego": ego_data,
+                "image_paths": img_paths,
                 "sample_idx": i,
                 "source": "PIE",
             })
 
         print(f"[PIE][{split}] 資料準備完成！共 {len(self.samples)} 筆有效樣本。")
 
+    @staticmethod
+    def _frame_key(img_path: str) -> str:
+        """從影像路徑提取快取 key，例如 'images/set01/video_0001/00015.png' → 'set01_video_0001_00015'"""
+        parts = img_path.replace("\\", "/").split("/")
+        # 找到 set/video/frame 部分
+        for j, p in enumerate(parts):
+            if p.startswith("set"):
+                vid = parts[j + 1] if j + 1 < len(parts) else ""
+                frame = os.path.splitext(parts[j + 2])[0] if j + 2 < len(parts) else ""
+                return f"{p}_{vid}_{frame}"
+        return ""
+
     def _load_flow_features(self, idx: int) -> torch.Tensor:
-        if self.flow_cache_dir and os.path.exists(self.flow_cache_dir):
-            flow_path = os.path.join(self.flow_cache_dir, f"pie_flow_{idx:06d}.npy")
-            if os.path.exists(flow_path):
-                return torch.from_numpy(np.load(flow_path)).float()
+        """載入 obs_len 個光流特徵，按影像路徑查找快取。"""
+        sample = self.samples[idx]
+        img_paths = sample.get("image_paths", [])
+
+        if self.flow_cache_dir and os.path.exists(self.flow_cache_dir) and len(img_paths) >= 2:
+            feats = []
+            for i in range(min(len(img_paths) - 1, self.obs_len)):
+                key = self._frame_key(img_paths[i])
+                flow_path = os.path.join(self.flow_cache_dir, f"{key}.npy")
+                if os.path.exists(flow_path):
+                    feats.append(torch.from_numpy(np.load(flow_path)).float())
+                else:
+                    feats.append(torch.zeros(self.flow_dim))
+            # 補齊到 obs_len（第一幀或末尾可能不足）
+            while len(feats) < self.obs_len:
+                feats.append(torch.zeros(self.flow_dim))
+            return torch.stack(feats[:self.obs_len])
+
         return torch.zeros(self.obs_len, self.flow_dim)
 
     def _load_sam_features(self, idx: int) -> torch.Tensor:
-        if self.sam_cache_dir and os.path.exists(self.sam_cache_dir):
-            sam_path = os.path.join(self.sam_cache_dir, f"pie_sam_{idx:06d}.npy")
+        """載入 SAM 場景特徵，使用最後一個觀察幀。"""
+        sample = self.samples[idx]
+        img_paths = sample.get("image_paths", [])
+
+        if self.sam_cache_dir and os.path.exists(self.sam_cache_dir) and len(img_paths) > 0:
+            # 使用最後一個觀察幀的 SAM 特徵
+            key = self._frame_key(img_paths[-1])
+            sam_path = os.path.join(self.sam_cache_dir, f"{key}.npy")
             if os.path.exists(sam_path):
                 return torch.from_numpy(np.load(sam_path)).float()
+
         return torch.zeros(self.num_patches, self.sam_dim)
 
     def __len__(self):
@@ -169,6 +223,8 @@ class JAADPedestrianDataset(Dataset):
     def _prepare_data(self, split: str):
         bboxes = self.raw_data.get("bbox", [])
         intents = self.raw_data.get("intent", [])
+        images = self.raw_data.get("image", [])
+        vehicle_acts = self.raw_data.get("vehicle_act", [])
 
         if len(bboxes) == 0:
             print(f"[JAAD] 警告：在 {split} 集中找不到任何軌跡資料。")
@@ -192,35 +248,70 @@ class JAADPedestrianDataset(Dataset):
             )
 
             # JAAD intent: list of lists per frame e.g. [[1],[0],[1],...]
-            intent_label = (
-                1.0 if (len(intents) > i and sum(x[0] for x in intents[i]) > 0) else 0.0
-            )
+            if len(intents) > i and len(intents[i]) > 0:
+                intent_vals = [x[0] if isinstance(x, list) else x for x in intents[i]]
+                intent_label = 1.0 if sum(intent_vals) > 0 else 0.0
+            else:
+                intent_label = 0.0
 
             ego_data = np.zeros((self.obs_len, 2), dtype=np.float32)
+
+            # 儲存影像路徑
+            img_paths = images[i][:self.obs_len] if len(images) > i else []
 
             self.samples.append({
                 "past_traj": past_traj,
                 "future_traj": future_traj,
                 "intent": np.array([intent_label], dtype=np.float32),
                 "ego": ego_data,
+                "image_paths": img_paths,
                 "sample_idx": i,
                 "source": "JAAD",
             })
 
         print(f"[JAAD][{split}] 資料準備完成！共 {len(self.samples)} 筆有效樣本。")
 
+    @staticmethod
+    def _frame_key(img_path: str) -> str:
+        """從影像路徑提取快取 key，例如 'images/video_0001/00015.png' → 'video_0001_00015'"""
+        parts = img_path.replace("\\", "/").split("/")
+        for j, p in enumerate(parts):
+            if p.startswith("video"):
+                frame = os.path.splitext(parts[j + 1])[0] if j + 1 < len(parts) else ""
+                return f"{p}_{frame}"
+        return ""
+
     def _load_flow_features(self, idx: int) -> torch.Tensor:
-        if self.flow_cache_dir and os.path.exists(self.flow_cache_dir):
-            flow_path = os.path.join(self.flow_cache_dir, f"jaad_flow_{idx:06d}.npy")
-            if os.path.exists(flow_path):
-                return torch.from_numpy(np.load(flow_path)).float()
+        """載入 obs_len 個光流特徵，按影像路徑查找快取。"""
+        sample = self.samples[idx]
+        img_paths = sample.get("image_paths", [])
+
+        if self.flow_cache_dir and os.path.exists(self.flow_cache_dir) and len(img_paths) >= 2:
+            feats = []
+            for i in range(min(len(img_paths) - 1, self.obs_len)):
+                key = self._frame_key(img_paths[i])
+                flow_path = os.path.join(self.flow_cache_dir, f"{key}.npy")
+                if os.path.exists(flow_path):
+                    feats.append(torch.from_numpy(np.load(flow_path)).float())
+                else:
+                    feats.append(torch.zeros(self.flow_dim))
+            while len(feats) < self.obs_len:
+                feats.append(torch.zeros(self.flow_dim))
+            return torch.stack(feats[:self.obs_len])
+
         return torch.zeros(self.obs_len, self.flow_dim)
 
     def _load_sam_features(self, idx: int) -> torch.Tensor:
-        if self.sam_cache_dir and os.path.exists(self.sam_cache_dir):
-            sam_path = os.path.join(self.sam_cache_dir, f"jaad_sam_{idx:06d}.npy")
+        """載入 SAM 場景特徵，使用最後一個觀察幀。"""
+        sample = self.samples[idx]
+        img_paths = sample.get("image_paths", [])
+
+        if self.sam_cache_dir and os.path.exists(self.sam_cache_dir) and len(img_paths) > 0:
+            key = self._frame_key(img_paths[-1])
+            sam_path = os.path.join(self.sam_cache_dir, f"{key}.npy")
             if os.path.exists(sam_path):
                 return torch.from_numpy(np.load(sam_path)).float()
+
         return torch.zeros(self.num_patches, self.sam_dim)
 
     def __len__(self):

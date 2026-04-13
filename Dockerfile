@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     git \
     wget \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # 設定 python3 為預設
