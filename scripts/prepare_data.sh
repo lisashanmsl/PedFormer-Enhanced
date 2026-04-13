@@ -3,6 +3,9 @@
 # 在 Docker 容器內執行
 set -e
 
+# 確保 Python 能找到 models/ 等套件
+export PYTHONPATH="/workspace/PedFormer:${PYTHONPATH}"
+
 PIE_DIR="${PIE_DIR:-data/PIE}"
 JAAD_DIR="${JAAD_DIR:-data/JAAD}"
 FLOW_CACHE="data/flow_cache"
