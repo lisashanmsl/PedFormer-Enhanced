@@ -8,8 +8,9 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
     volumes:
       # 掛載遠端電腦上的資料集 (修改左邊路徑為遠端實際路徑)
-      - /home/nutn/Downloads/PIE:/workspace/PedFormer/data/PIE
-      - /home/nutn/Downloads/JAAD:/workspace/PedFormer/data/JAAD
+      - /mnt/PIE:/workspace/PedFormer/data/PIE
+      - /mnt/JAAD:/workspace/PedFormer/data/JAAD
+      - /home/nutn/JAAD_images:/workspace/PedFormer/data/JAAD/images
       # 預訓練權重 (RAFT + SAM)
       - ./weights:/workspace/PedFormer/weights
       # 訓練產出 (logs, checkpoints) 持久化到 host
