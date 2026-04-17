@@ -82,10 +82,11 @@ class PIEPedestrianDataset(Dataset):
                 axis=-1,
             )
 
-            # intent: PIE 是 [[prob]] * N, JAAD 是 [[0/1]] * N
+            # intent: PIE 的 intention_prob 是連續機率值 (0~1)
+            # 使用平均機率 >= 0.5 作為穿越閾值
             if len(intents) > i and len(intents[i]) > 0:
                 intent_vals = [x[0] if isinstance(x, list) else x for x in intents[i]]
-                intent_label = 1.0 if sum(intent_vals) > 0 else 0.0
+                intent_label = 1.0 if np.mean(intent_vals) >= 0.5 else 0.0
             else:
                 intent_label = 0.0
 
