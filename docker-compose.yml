@@ -11,6 +11,7 @@ services:
       - /mnt/PIE:/workspace/PedFormer/data/PIE
       - /mnt/JAAD:/workspace/PedFormer/data/JAAD
       - /home/nutn/JAAD_images:/workspace/PedFormer/data/JAAD/images
+      - /home/nutn/PIE_images_overflow:/home/nutn/PIE_images_overflow
       # 預訓練權重 (RAFT + SAM)
       - ./weights:/workspace/PedFormer/weights
       # 訓練產出 (logs, checkpoints) 持久化到 host
