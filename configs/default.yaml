@@ -7,7 +7,7 @@ paths:
   weights_dir: "weights"
   logs_dir: "logs"
   flow_cache_dir: "data/flow_cache"      # 預計算光流快取
-  sam_cache_dir: "data/sam_cache"         # 預計算 SAM 分割快取
+  sam_cache_dir: ~                        # 暫停 SAM：設為 null → 全部回傳零向量
 
 # 模型超參數
 model:
